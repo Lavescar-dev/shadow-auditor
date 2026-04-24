@@ -1,0 +1,14 @@
+[package]
+name = "shaudit-detect"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shadow Auditor — AI authorship detection (plan §3.2, Week 4 work)"
+
+[dependencies]
+shaudit-core = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

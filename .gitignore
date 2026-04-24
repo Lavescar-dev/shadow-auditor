@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# shaudit runtime
+.shaudit/
+shaudit-generated/
+shaudit-results.sarif
+shaudit.log
+
+# insta
+*.snap.new
+*.pending-snap
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local secrets
+.env
+.env.local
