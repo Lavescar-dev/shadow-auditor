@@ -180,6 +180,8 @@ pub struct Candidate {
     pub language: Language,
     pub changed_lines: Option<RangeSet>,
     pub commit_sha: Option<String>,
+    /// AI-authorship score in [0.0, 1.0], filled by `shaudit-detect`.
+    pub provenance_score: Option<f32>,
 }
 
 impl Candidate {
@@ -189,6 +191,7 @@ impl Candidate {
             language,
             changed_lines: None,
             commit_sha: None,
+            provenance_score: None,
         }
     }
 }

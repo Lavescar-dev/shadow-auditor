@@ -19,11 +19,15 @@ shaudit-discover = { workspace = true }
 shaudit-detect = { workspace = true }
 shaudit-parse = { workspace = true }
 shaudit-output = { workspace = true }
+verify-secrets = { workspace = true }
+verify-cve = { workspace = true }
 
 clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
