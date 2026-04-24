@@ -17,6 +17,14 @@ pub use json::JsonRenderer;
 pub use sarif::SarifRenderer;
 pub use terminal::TerminalRenderer;
 
+/// Minimal descriptor for SARIF's `rules[]` array. Built by the CLI from
+/// each registered verifier's `id()` and `description()`.
+#[derive(Debug, Clone)]
+pub struct RuleDescriptor {
+    pub verifier_id: String,
+    pub description: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     #[error("i/o error: {0}")]

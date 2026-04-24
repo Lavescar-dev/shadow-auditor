@@ -106,5 +106,6 @@ pub(crate) fn make_candidate(
         language,
         changed_lines,
         commit_sha,
+        provenance_score: None,
     }
 }
