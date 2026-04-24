@@ -1,0 +1,32 @@
+[package]
+name = "shaudit-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Shadow Auditor — CLI entry point (binary `shaudit`)"
+
+[[bin]]
+name = "shaudit"
+path = "src/main.rs"
+
+[dependencies]
+shaudit-core = { workspace = true }
+shaudit-config = { workspace = true }
+shaudit-discover = { workspace = true }
+shaudit-detect = { workspace = true }
+shaudit-parse = { workspace = true }
+shaudit-output = { workspace = true }
+
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
+serde_json = { workspace = true }
