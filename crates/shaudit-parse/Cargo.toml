@@ -1,0 +1,21 @@
+[package]
+name = "shaudit-parse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shadow Auditor — tree-sitter parsing and AST cache"
+
+[dependencies]
+shaudit-core = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

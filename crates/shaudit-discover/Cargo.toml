@@ -1,0 +1,19 @@
+[package]
+name = "shaudit-discover"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shadow Auditor — discover candidate files via fs walking and git diff"
+
+[dependencies]
+shaudit-core = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+ignore = { workspace = true }
+tracing = { workspace = true }
+glob = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

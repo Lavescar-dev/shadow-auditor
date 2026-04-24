@@ -1,0 +1,80 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Efe Aras <efe@lavescar.com.tr>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Lavescar-dev/shadow-auditor"
+homepage = "https://audit.lavescar.com.tr"
+description = "Verify what your AI just wrote — static analysis CLI for AI-generated code"
+keywords = ["ai", "audit", "static-analysis", "sarif", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+# Internal crates
+shaudit-cli = { path = "crates/shaudit-cli", version = "0.1.0" }
+shaudit-core = { path = "crates/shaudit-core", version = "0.1.0" }
+shaudit-discover = { path = "crates/shaudit-discover", version = "0.1.0" }
+shaudit-detect = { path = "crates/shaudit-detect", version = "0.1.0" }
+shaudit-parse = { path = "crates/shaudit-parse", version = "0.1.0" }
+shaudit-config = { path = "crates/shaudit-config", version = "0.1.0" }
+shaudit-output = { path = "crates/shaudit-output", version = "0.1.0" }
+
+# Core
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+postcard = { version = "1", features = ["use-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+async-trait = "0.1"
+glob = "0.3"
+
+# Git + fs
+# gix — deferred: Hafta 3+ may switch from `git` subprocess to pure-Rust gix.
+# gix = "0.82"
+ignore = "0.4"
+
+# Parser
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+
+# Networking
+reqwest = { version = "0.13", default-features = false, features = ["rustls-tls", "json"] }
+
+# Terminal
+owo-colors = "4"
+tabled = "0.20"
+indicatif = "0.18"
+
+# Output formats
+serde_sarif = "0.8"
+
+# Security data
+rustsec = "0.32"
+
+# Dev dependencies
+insta = { version = "1", features = ["yaml"] }
+assert_cmd = "2"
+predicates = "3"
+proptest = "1"
+tempfile = "3"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+opt-level = 3
+
+[profile.dev.package."*"]
+opt-level = 2
