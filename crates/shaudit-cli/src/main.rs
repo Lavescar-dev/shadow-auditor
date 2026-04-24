@@ -1,20 +1,23 @@
 //! Shadow Auditor CLI entry point.
 //!
-//! Subcommand surface matches plan §6.1. Only `scan`, `init`, `verifiers`, and
-//! `version` do meaningful work in Hafta 1-2; `detect` and `cache` are stubs.
+//! Subcommand surface matches plan §6.1. `scan`, `init`, `verifiers`, and
+//! `version` are fully wired; `detect` + `cache` are minimal stubs.
 
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use futures::future::join_all;
 
 use shaudit_config::{Config, SHAUDITIGNORE_TEMPLATE};
-use shaudit_core::{Finding, Severity};
+use shaudit_core::{Finding, Severity, Verifier, VerifyContext};
 use shaudit_discover::{DefaultDiscoverer, DiscoverOpts, Discoverer};
 use shaudit_output::{JsonRenderer, Renderer, RunMeta, SarifRenderer, TerminalRenderer};
-use shaudit_parse::SharedAstCache;
+use verify_cve::CveVerifier;
+use verify_secrets::SecretsVerifier;
 
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -203,6 +206,18 @@ fn cmd_scan(
     config_override: Option<&std::path::Path>,
     no_color: bool,
 ) -> anyhow::Result<i32> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_scan(args, config_override, no_color))
+}
+
+async fn run_scan(
+    args: &ScanArgs,
+    config_override: Option<&std::path::Path>,
+    no_color: bool,
+) -> anyhow::Result<i32> {
     let workspace_root = std::env::current_dir().context("cwd")?;
 
     let config = match config_override {
@@ -230,7 +245,7 @@ fn cmd_scan(
         roots,
         diff_ref: args.diff.clone(),
         staged: args.staged,
-        languages: None, // language-name → Language enum mapping lands with the secrets verifier
+        languages: None,
         exclude: config.discover.exclude.clone(),
         respect_gitignore: config.general.respect_gitignore,
         include_submodules: args.include_submodules,
@@ -238,45 +253,185 @@ fn cmd_scan(
 
     let started = Instant::now();
     let discoverer = DefaultDiscoverer;
-    let candidates = discoverer.discover(&opts).context("discover candidates")?;
+    let mut candidates = discoverer.discover(&opts).context("discover candidates")?;
 
     tracing::info!(count = candidates.len(), "candidates discovered");
 
-    // Parse each file into the AST cache. Errors become Info findings.
-    let ast_cache = SharedAstCache::new();
-    let findings: Vec<Finding> = Vec::new();
-    for c in &candidates {
-        match ast_cache.get_or_parse(&c.path, c.language) {
-            Ok(_) => {}
-            Err(shaudit_parse::ParseError::UnsupportedLanguage(_)) => {
-                // Unknown-language files slip past the fs filter (e.g., via
-                // `--languages` override). Silently skip until the language
-                // list matures.
-            }
-            Err(err) => {
-                tracing::warn!(path = %c.path.display(), %err, "parse failed");
-            }
-        }
+    // --- AI provenance detection ---
+    let detect_enabled = config.detect.enabled && !args.no_detect;
+    if detect_enabled {
+        score_candidates(&mut candidates, &workspace_root);
     }
+
+    if args.ai_only {
+        let threshold = config.detect.threshold;
+        let before = candidates.len();
+        candidates.retain(|c| c.provenance_score.is_some_and(|s| s >= threshold));
+        tracing::info!(
+            before,
+            after = candidates.len(),
+            threshold,
+            "--ai-only filter applied"
+        );
+    }
+
+    let verifiers = build_verifier_registry(args, &config);
+    let verifier_ids: Vec<String> = verifiers.iter().map(|v| v.id().to_string()).collect();
+
+    tracing::info!(
+        verifiers = ?verifier_ids,
+        "dispatching verifiers"
+    );
+
+    let mut findings = dispatch_verifiers(&candidates, &verifiers, &workspace_root).await;
+    attach_provenance_to_findings(&mut findings, &candidates);
+    sort_findings(&mut findings, args.ai_priority);
 
     let meta = RunMeta {
         tool_version: TOOL_VERSION,
         candidates_scanned: candidates.len(),
-        verifiers_run: Vec::new(), // verifiers land in Hafta 3-6
+        verifiers_run: verifier_ids,
         duration: started.elapsed(),
     };
 
-    render_findings(&findings, &meta, args, no_color)?;
+    render_findings(&findings, &meta, &verifiers, args, no_color)?;
 
-    let exit_code = compute_exit_code(&findings, args.fail_on.as_deref(), &config);
-    // Keep `findings` borrowed above; suppress unused-warning for the length.
-    let _ = findings.len();
-    Ok(exit_code)
+    Ok(compute_exit_code(
+        &findings,
+        args.fail_on.as_deref(),
+        &config,
+    ))
+}
+
+fn build_verifier_registry(args: &ScanArgs, config: &Config) -> Vec<Arc<dyn Verifier>> {
+    let mut registry: Vec<Arc<dyn Verifier>> = Vec::new();
+
+    let secrets_enabled = config.verifiers.secrets.enabled;
+    let cve_enabled = config.verifiers.cve.enabled;
+
+    let explicit = args.verifiers.as_ref();
+    let skip: std::collections::HashSet<&str> = args
+        .skip
+        .as_ref()
+        .map(|s| s.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let want = |id: &str, config_enabled: bool| -> bool {
+        if skip.contains(id) {
+            return false;
+        }
+        match explicit {
+            Some(ids) => ids.iter().any(|s| s == id),
+            None => config_enabled,
+        }
+    };
+
+    if want("secrets", secrets_enabled) {
+        registry.push(Arc::new(SecretsVerifier::with_builtin_rules()));
+    }
+    if want("cve", cve_enabled) {
+        registry.push(Arc::new(CveVerifier::new()));
+    }
+
+    registry
+}
+
+async fn dispatch_verifiers(
+    candidates: &[shaudit_core::Candidate],
+    verifiers: &[Arc<dyn Verifier>],
+    workspace_root: &std::path::Path,
+) -> Vec<Finding> {
+    let mut tasks = Vec::new();
+    for cand in candidates {
+        for verifier in verifiers {
+            if !verifier.supported_languages().contains(&cand.language) {
+                continue;
+            }
+            let verifier = verifier.clone();
+            let cand = cand.clone();
+            let root = workspace_root.to_path_buf();
+            tasks.push(tokio::spawn(async move {
+                let ctx = VerifyContext {
+                    workspace_root: &root,
+                    provenance: cand.provenance_score,
+                };
+                match verifier.verify(&cand, &ctx).await {
+                    Ok(findings) => findings,
+                    Err(e) => {
+                        tracing::warn!(
+                            verifier = verifier.id(),
+                            path = %cand.path.display(),
+                            error = %e,
+                            "verifier failed"
+                        );
+                        Vec::new()
+                    }
+                }
+            }));
+        }
+    }
+    let all = join_all(tasks).await;
+    let mut out = Vec::new();
+    for mut findings in all.into_iter().flatten() {
+        out.append(&mut findings);
+    }
+    out
+}
+
+fn sort_findings(findings: &mut [Finding], ai_priority: bool) {
+    findings.sort_by(|a, b| {
+        if ai_priority {
+            let a_score = a.provenance_score.unwrap_or(0.0);
+            let b_score = b.provenance_score.unwrap_or(0.0);
+            let ord = b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal);
+            if ord != std::cmp::Ordering::Equal {
+                return ord;
+            }
+        }
+        b.severity
+            .rank()
+            .cmp(&a.severity.rank())
+            .then_with(|| a.location.path.cmp(&b.location.path))
+            .then_with(|| a.location.start_line.cmp(&b.location.start_line))
+    });
+}
+
+fn score_candidates(candidates: &mut [shaudit_core::Candidate], workspace_root: &std::path::Path) {
+    for c in candidates.iter_mut() {
+        // Inline override markers take precedence over heuristic scoring.
+        if let Ok(source) = std::fs::read_to_string(&c.path) {
+            if let Some(forced) = shaudit_detect::inline_override(&source) {
+                c.provenance_score = Some(forced);
+                continue;
+            }
+        }
+        if let Some(report) = shaudit_detect::score_candidate(c, workspace_root) {
+            c.provenance_score = Some(report.score);
+        }
+    }
+}
+
+fn attach_provenance_to_findings(findings: &mut [Finding], candidates: &[shaudit_core::Candidate]) {
+    use std::collections::HashMap;
+    let scores: HashMap<std::path::PathBuf, f32> = candidates
+        .iter()
+        .filter_map(|c| c.provenance_score.map(|s| (c.path.clone(), s)))
+        .collect();
+    for f in findings.iter_mut() {
+        if f.provenance_score.is_none() {
+            if let Some(&s) = scores.get(&f.location.path) {
+                f.provenance_score = Some(s);
+            }
+        }
+    }
 }
 
 fn render_findings(
     findings: &[Finding],
     meta: &RunMeta,
+    verifiers: &[Arc<dyn Verifier>],
     args: &ScanArgs,
     no_color: bool,
 ) -> anyhow::Result<()> {
@@ -290,8 +445,18 @@ fn render_findings(
         None => Box::new(io::stdout().lock()),
     };
 
+    // Rule descriptors for SARIF rules[] array (SARIF only needs them; other
+    // renderers ignore the arg).
+    let rule_descriptors: Vec<shaudit_output::RuleDescriptor> = verifiers
+        .iter()
+        .map(|v| shaudit_output::RuleDescriptor {
+            verifier_id: v.id().to_string(),
+            description: v.description().to_string(),
+        })
+        .collect();
+
     match format.as_str() {
-        "sarif" => SarifRenderer.render(findings, meta, &mut out)?,
+        "sarif" => SarifRenderer::new(rule_descriptors).render(findings, meta, &mut out)?,
         "json" => JsonRenderer.render(findings, meta, &mut out)?,
         "terminal" | "auto" => TerminalRenderer::new(!no_color).render(findings, meta, &mut out)?,
         other => anyhow::bail!("unknown format `{other}` — use terminal|sarif|json"),

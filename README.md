@@ -9,9 +9,16 @@ hallucinated imports, hardcoded secrets, known-vulnerable dependencies, and
 untested invariants — in one static binary, with SARIF output for GitHub Code
 Scanning.
 
-**Status:** `v0.1.0` early scaffolding. Hafta 1–2 complete: workspace, discovery,
-and tree-sitter parsing. Verifiers land in Hafta 3–6. See
+**Status:** `v0.1.0-wip`. Hafta 1–4 complete: workspace scaffold, discovery
++ tree-sitter parsing, **secrets verifier** (218 gitleaks rules + AST context
++ entropy), **CVE verifier** (rustsec + OSV.dev across Rust/Node/Python/Go),
+**AI provenance scoring** (8 signals, weighted sum). Remaining verifiers
+(hallucination, deadcode, mutation, property) land in Hafta 5–6. See
 [`shaudit-plan.md`](./shaudit-plan.md) for the full 12-week plan.
+
+### Third-party attributions
+
+- Vendored gitleaks default rules (MIT) — see [`LICENSE-GITLEAKS`](./LICENSE-GITLEAKS).
 
 ## Why another audit tool?
 

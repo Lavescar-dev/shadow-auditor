@@ -1,20 +1,24 @@
 [package]
-name = "shaudit-detect"
+name = "verify-secrets"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shadow Auditor — AI authorship detection (plan §3.2, Week 4 work)"
+description = "Shadow Auditor — secret/credential detection (plan §4.1)"
 
 [dependencies]
 shaudit-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+regex = { workspace = true }
+aho-corasick = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-regex = { workspace = true }
-aho-corasick = { workspace = true }
-chrono = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-rust = { workspace = true }
 tree-sitter-typescript = { workspace = true }
